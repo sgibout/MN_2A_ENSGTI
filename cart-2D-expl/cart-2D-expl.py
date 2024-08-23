@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon Oct  3 15:24:32 2022
-
 @author: sgibout
 """
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
-import sys
-
 
 # ========================================
 # Déclaration des paramètres
@@ -18,25 +16,23 @@ mMax = 30       # [-] nombre de pas d'espace selon X
 nMax = 30       # [-] nombre de pas d'espace selon Y
 
 LX = 0.1         # [m] longueur mur selon X
-LY = 0.12         # [m] longueur mur selon Y
-D = 600        # [s] durée de la simulation
+LY = 0.1         # [m] longueur mur selon Y
+D = 3600        # [s] durée de la simulation
 
-dt = 15        # [s] pas de temps de simulation
-dtLog = 10       # [s] pas de temps de sauvegardeè2
+dt = 1       # [s] pas de temps de simulation
+dtLog = 60       # [s] pas de temps de sauvegardeè2
 
 rho = 1000       # [kg/m3] masse volumique
-CL= 4000   # [J/kg/K] capacité calorifique état liquide
-CS= 2000   # [J/kg/K] capacité calorifique état solide
-TF = 30     # [°C] température de fusion
-LF = 100E3  # [J/kg] chaleur latente de fusion
-k = 1         # [W/(m.K)] conductivité thermique
 
-phi =  10000     # densité de flux imposée W/m2
+K = lambda T : 1 + 0.1 * (T - 20)
+C = lambda T : 2000 + 20 * (T - 20)
 
-T0 = 20         # [°C] température initiale
-TINF = 50       # [°C] température fluide extérieur
-HCONV = 100         # [W/m2/K] Coefficient d'échange global
+TINF = lambda t : 20 +  10*np.sin(2*np.pi*t/1800) # [°C] température externe
 
+H1 = 100         # [W/m2/K] Coefficient d'échange global (haut)
+H2 = 100         # [W/m2/K] Coefficient d'échange global (droite)
+
+PHI = 1000     # [W/m2] densité de flux imposée
 
 # ========================================
 # préparation des géométries
@@ -48,48 +44,38 @@ Sx = 1*dy
 Sy = 1*dx
 V = 1*dx*dy
 
-
-Hx = 1/(1/HCONV + 0.5*dx/k)
-Hy = 1/(1/HCONV + 0.5*dy/k)
-
-
 # ========================================
 # Routine d'export
 # ========================================
+
+# Création du répertoire si nécessaire
+if not os.path.exists("res"):
+    os.makedirs("res")
+
+# Pour gagner un peu de temps...
+X = [ (m+0.5)*dx for m in range(0,mMax) ]
+Y = [ (n+0.5)*dy for n in range(0,nMax) ]
+XX, YY = np.meshgrid(X,Y)
+
 def export():
-#    plt.figure()
-    c1=plt.contourf(T,     cmap ="jet")
+    levels = np.linspace(10, 35, num=20)
+    c1=plt.contourf(XX,YY,T,     cmap ="jet", levels=levels)
+    #c1=plt.pcolormesh(T,     cmap ="jet", vmin = 10, vmax = 35)
+    plt.xlabel("x [m]")
+    plt.ylabel("y [m]")
+    plt.title(f"T(x,y,t) @ t={time:.0f}s")
     plt.colorbar(c1)
     plt.savefig(f"res/T_{time}.png")
     plt.close()
-#    plt.figure()
-    c1=plt.contourf(Y,     cmap ="jet")
-    plt.colorbar(c1)
-    plt.savefig(f"res/Y_{time}.png")
-    plt.close()    
 # ========================================
 # Résolution
 # ========================================
 
-H = np.zeros((mMax, nMax))
 T = np.zeros((mMax, nMax))
-Y = np.zeros((mMax, nMax))
+EVOL = np.zeros((mMax, nMax))
 
 # Conditions initiales
-T[:,:]= T0
-if T0<TF:
-    # SOLIDE
-    H[:,:] = (T0-TF)*CS
-    Y[:,:] = 0
-elif T0>TF:
-    # Liquide
-    H[:,:] = LF+(T0-TF)*CL
-    Y[:,:] = 1
-else:
-    print("*** ERREUR : impossible d'initialiser à T0=TF")
-    sys.exist()
-    
-
+T[:,:] = TINF(0)-10
 
 # Boucle de résolution
 
@@ -105,54 +91,41 @@ while time<D:
     # 1) Calcul du nouveau H
     for m in range(mMax):
         for n in range(nMax):
+
             # Calcul du flux GAUCHE
             if m==0:
                 FG = 0
             else:
-                FG = k*Sx*(T[m-1, n]-T[m, n])/dx
+                ktmp = K(0.5*(T[m-1, n]+T[m, n]))
+                FG = ktmp*Sx*(T[m-1, n]-T[m, n])/dx
             
             # Calcul du flux DROIT
             if m==mMax-1:
-                FD = Hx*Sx*(TINF-T[m,n])
+                FD = H2*Sx*(TINF(time)-T[m,n])
             else:
-                FD = k*Sx*(T[m+1,n]-T[m, n])/dx
+                ktmp = K(0.5*(T[m+1, n]+T[m, n]))
+                FD = ktmp*Sx*(T[m+1,n]-T[m, n])/dx
             
             # Calcul du flux BAS
             if n==0:
-                FB = phi*Sy
+                FB = 0
             else:
-                FB = k*Sy*(T[m, n-1]-T[m, n])/dy
+                ktmp = K(0.5*(T[m, n-1]+T[m, n]))
+                FB = ktmp*Sy*(T[m, n-1]-T[m, n])/dy
             
             # Calcul du flux HAUT
             if n==nMax-1:
-                FH = Hy*Sy*(TINF-T[m,n])
+                FH = Sy*( H1*(TINF(time)-T[m,n]) + PHI)
             else:
-                FH = k*Sy*(T[m,n+1]-T[m, n])/dy
+                ktmp = K(0.5 * (T[m, n + 1] + T[m, n]))
+                FH = ktmp*Sy*(T[m,n+1]-T[m, n])/dy
         
         
             # calculer le bilan
-            H[m, n] += dt*(FG+FD+FH+FB)/(rho*V)
+            EVOL[m, n] = dt*(FG+FD+FH+FB)/(rho*V*C(T[m,n]))
     
-    # 2) Evolution vers le nouvel état (mise à jour de T et Y)
-    for m in range(mMax):
-        for n in range(nMax):
-            if H[m,n]<0:
-                # Solide
-                T[m,n] = TF+H[m,n]/CS
-                Y[m,n] = 0
-            elif H[m,n]> LF:
-                # Liquide
-                T[m,n] = TF+(H[m,n]-LF)/CL
-                Y[m,n] = 1
-            else:
-                # Equilibre
-                T[m,n] = TF
-                Y[m,n] = H[m,n]/LF
-                
-    
-                
-    
-    
-    # 3) préparer l'itération suivante
+    # 2) préparer l'itération suivante
+    T[:,:] = T[:,:] + EVOL[:,:]
     time = time + dt
-    
+
+
