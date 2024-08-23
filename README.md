@@ -1,2 +1,2 @@
-Codes d'illustration du cours de Modélisation numérique subi par les étudiants
-en deuxième année de l'ENSGTI.
+Codes d'illustration du cours de Modélisation Numérique subi par les étudiants
+énergéticiens de deuxième année à l'ENSGTI.
